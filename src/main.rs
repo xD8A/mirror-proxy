@@ -1,6 +1,8 @@
+use std::process::exit;
 use std::format;
+use std::convert::TryFrom;
 use std::io::Write;
-use log::{info, warn};
+use log::{info, warn, error};
 use clap::{App, Arg};
 
 
@@ -28,6 +30,12 @@ async fn main() {
 
     let arg_matches = App::new(NAME)
         .version(VERSION)
+        .arg(Arg::with_name("config")
+            .long("config")
+            .short("c")
+            .default_value("config.yaml")
+            .help("Sets a config for server")
+        )
         .arg(Arg::with_name("ip")
             .long("ip")
             .env(&*env_ip)
@@ -42,18 +50,71 @@ async fn main() {
         .get_matches();
 
     const DEFAULT_IP: &'static str = "127.0.0.1";
-    let ip: String = String::from(arg_matches.value_of("ip").unwrap_or(DEFAULT_IP));
+    let mut ip = String::from(arg_matches.value_of("ip").unwrap_or(DEFAULT_IP));
     const DEFAULT_PORT: u16 = 8080;
-    let port: u16 = match arg_matches.value_of("port") {
+    let mut port: u16 = match arg_matches.value_of("port") {
         Some(v) => match v.parse::<u16>() {
             Ok(v) => v,
             Err(_) => {
-                warn!("args: invalid set port (must be a number in the range 0..65535, got {:?}) will be changed to default value ({})", v, DEFAULT_PORT);
+                warn!("args: invalid set port (must be a number in the range 0..65535, got {:?}) \
+                       will be changed to default value ({})", v, DEFAULT_PORT);
                 DEFAULT_PORT
             }
         },
         None => DEFAULT_PORT
     };
 
-    info!("Server listening at {}:{}", ip, port);
+    // read config
+    let config_path = arg_matches.value_of("config").unwrap();
+    let config_file = match std::fs::File::open(config_path) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("can not open config file {:?}; err = {:?}", config_path, e);
+            exit(78);
+        }
+    };
+    let config: serde_yaml::Value = match serde_yaml::from_reader(config_file) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("can not open config file {:?}; err = {:?}", config_path, e);
+            exit(78);
+        }
+    };
+
+    if !arg_matches.is_present("ip") {
+        ip = match config.get("ip") {
+            Some(v) => serde_yaml::from_value(v.clone()).unwrap(),
+            None => ip
+        };
+    }
+
+    if !arg_matches.is_present("port") {
+        let p = match &config.get("port") {
+            Some(v) => {
+                let p = match v {
+                    &serde_yaml::Value::Number(v) => {
+                        match &v.as_u64() {
+                            Some(v) => match u16::try_from(v.clone()) {
+                                Ok(v) => Some(v),
+                                Err(_) => None
+                            },
+                            None => None
+                        }
+                    },
+                    _ => None
+                };
+                if p.is_none() {
+                    warn!("args: invalid set port (must be a number in the range 0..65535, got {:?}) \
+                       will be changed to default value ({})", v, port);
+                }
+                p
+            }
+            None => None
+        };
+        if !p.is_none() {
+            port = p.unwrap();
+        }
+    }
+
+    info!("server listening at {}:{}", ip, port);
 }
