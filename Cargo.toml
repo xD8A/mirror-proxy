@@ -15,4 +15,4 @@ http = "0.2"
 serde_yaml = "0.8"
 clap = { version = "2", default-features = false, features = ["suggestions"] }
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "io-util", "net", "macros"] }
-hyper = { version = "0.14", default-features = false, features = ["client", "server", "http1", "runtime"] }
+hyper = { version = "0.14", default-features = false, features = ["client", "server", "http1", "runtime", "stream"] }
